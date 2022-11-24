@@ -1,12 +1,12 @@
-package main
+package twirc
 
 import (
 	"bufio"
 	"fmt"
+	"log"
 	"net"
 	"strings"
-
-	"go.uber.org/zap"
+	"sync"
 )
 
 const (
@@ -20,12 +20,11 @@ type Message struct {
 	parameters string
 }
 
-func newTwitchIRC(nick, password string) *TwitchIRC {
-	logger, _ := zap.NewProduction()
-	defer logger.Sync() // flushes buffer, if any
-	sugar := logger.Sugar()
-	return &TwitchIRC{nick: nick, pass: password, logger: sugar}
+func NewTwitchIRC(nick, password string) *TwitchIRC {
+	return &TwitchIRC{nick: nick, pass: password}
 }
+
+//
 
 type TwitchIRC struct {
 	address string
@@ -35,16 +34,26 @@ type TwitchIRC struct {
 	conn    net.Conn
 	reader  *bufio.Reader
 	writer  *bufio.Writer
-	logger  *zap.SugaredLogger
+	mu      *sync.Mutex
+}
+
+// func (t *TwitchIRC) OnMessage(func(msg string) string) {
+// 	t.write()
+// }
+
+func (t *TwitchIRC) Start() {
+	t.init()
+	t.auth()
+	t.startLoop()
 }
 
 func (twirc *TwitchIRC) init() {
 	conn, err := net.Dial("tcp", CONN_HOST)
 	if err != nil {
-		fmt.Println(err)
+		log.Fatal("Connection error %s", err)
 	}
 	twirc.conn = conn
-
+	twirc.mu = &sync.Mutex{}
 	reader := bufio.NewReader(twirc.conn)
 	writer := bufio.NewWriter(twirc.conn)
 	twirc.reader = reader
@@ -52,29 +61,73 @@ func (twirc *TwitchIRC) init() {
 }
 
 func (t *TwitchIRC) write(msg string) {
+	t.mu.Lock()
 	_, err := t.writer.WriteString(msg)
 	if err != nil {
-		fmt.Println(err)
+		fmt.Println("ETO TUT", err)
 	}
 	err = t.writer.Flush()
+	t.mu.Unlock()
 }
 
-func (t *TwitchIRC) parseIRCMessage(string) {
-	msg := &Message{}
-	fmt.Println(msg)
+func (t *TwitchIRC) parseIRCMessage(rawMsg string) {
+	// msg := &Message{}
+	idx := 0
+
+	var rawTagsComponent string
+	var rawSourceComponent string
+
+	if rawMsg[idx] == '@' {
+		endIdx := strings.Index(rawMsg, " ")
+		rawTagsComponent = rawMsg[1:endIdx]
+		rawMsg = rawMsg[endIdx+1:]
+	} else {
+		return
+	}
+	idx = 0
+
+	// Get the source component (nick and host) of the IRC message.
+	// The idx should point to the source part; otherwise, it's a PING command
+	if rawMsg[0] == ':' {
+		fmt.Println(rawMsg)
+		idx++
+		endIdx := strings.Index(rawMsg, " ")
+
+		rawSourceComponent = rawMsg[idx:]
+		rawMsg = rawMsg[endIdx+1:]
+	}
+
+	// Get the command component of the IRC message.
+
+	endIdx := strings.Index(rawMsg, ":") // Looking for the parameters part of the message.
+	if -1 == endIdx {                    // But not all messages include the parameters part.
+		endIdx = len(rawMsg)
+	}
+	rawCommandComponent := rawMsg[idx-1 : endIdx]
+
+	fmt.Println("CUT_RAW", rawMsg)
+
+	fmt.Println("rawTagsComponent", rawTagsComponent)
+	fmt.Println("rawSourceComponent", rawSourceComponent)
+	fmt.Println("rawCommandComponent", rawCommandComponent)
 }
 
 func (t *TwitchIRC) auth() {
 	t.write("CAP REQ :twitch.tv/membership twitch.tv/tags twitch.tv/commands\r\n")
-	message, _ := t.reader.ReadString('\n')
-	if message != "" { // здесь чекнуть ответ от твича
+	msg, _ := t.reader.ReadString('\n')
+	if msg != "" { // здесь чекнуть ответ от твича
+		fmt.Println(msg)
 	}
 	t.write(fmt.Sprintf("PASS %s\r\nNICK %s\r\n", t.pass, t.nick))
-	if message != "nil" { // здесь чекнуть ответ от твича
+	msg, _ = t.reader.ReadString('\n')
+	if strings.Contains(msg, "Login authentication failed") { // здесь чекнуть ответ от твича
+		log.Fatal("Login authentication failed")
 	}
 	t.write(fmt.Sprintf("JOIN #%s\r\n", t.nick))
-	if message != "nil" { // здесь чекнуть ответ от твича
-	}
+	//message, _ = t.reader.ReadString('\n')
+	//if message != "nil" { // здесь чекнуть ответ от твича
+	//	fmt.Println(message)
+	//}
 }
 
 func (t *TwitchIRC) startLoop() {
@@ -85,15 +138,14 @@ func (t *TwitchIRC) startLoop() {
 
 		if len(message) > 0 {
 			msg := strings.Split(message, " ")
-			t.logger.Infoln(msg)
+			// t.logger.Infoln(msg)
 
 			if msg[0] == "PING" {
-				fmt.Println("write", fmt.Sprintf("PONG %s", msg[1]))
 				go t.write(fmt.Sprintf("PONG :%s\r\n", strings.Join(msg[1:], " ")))
 			} else if len(msg) >= 3 {
 				if msg[1] == "JOIN" {
 					name := strings.Split(msg[0], "!")
-					go t.write(fmt.Sprintf("PRIVMSG #%s :Hello, @%s \r\n", t.nick, name[0][1:]))
+					go t.write(fmt.Sprintf("PRIVMSG #%s :Hi, @%s \r\n", t.nick, name[0][1:]))
 
 				} else {
 				}
@@ -102,12 +154,4 @@ func (t *TwitchIRC) startLoop() {
 		}
 
 	}
-}
-
-func main() {
-	twirc := newTwitchIRC("nick", "oauth:blalbla")
-
-	twirc.init()
-	twirc.auth()
-	twirc.startLoop()
 }
