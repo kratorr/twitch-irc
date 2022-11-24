@@ -47,17 +47,15 @@ func (t *TwitchIRC) Start() {
 	t.startLoop()
 }
 
-func (twirc *TwitchIRC) init() {
+func (t *TwitchIRC) init() {
 	conn, err := net.Dial("tcp", CONN_HOST)
 	if err != nil {
 		log.Fatal("Connection error %s", err)
 	}
-	twirc.conn = conn
-	twirc.mu = &sync.Mutex{}
-	reader := bufio.NewReader(twirc.conn)
-	writer := bufio.NewWriter(twirc.conn)
-	twirc.reader = reader
-	twirc.writer = writer
+	t.conn = conn
+	t.mu = &sync.Mutex{}
+	t.reader = bufio.NewReader(t.conn)
+	t.writer = bufio.NewWriter(t.conn)
 }
 
 func (t *TwitchIRC) write(msg string) {
@@ -71,7 +69,7 @@ func (t *TwitchIRC) write(msg string) {
 }
 
 func (t *TwitchIRC) parseIRCMessage(rawMsg string) {
-	// msg := &Message{}
+	msg := &Message{}
 	idx := 0
 
 	var rawTagsComponent string
@@ -104,12 +102,16 @@ func (t *TwitchIRC) parseIRCMessage(rawMsg string) {
 		endIdx = len(rawMsg)
 	}
 	rawCommandComponent := rawMsg[idx-1 : endIdx]
+	msg.command = t.parseCommand(rawCommandComponent)
 
 	fmt.Println("CUT_RAW", rawMsg)
-
+	fmt.Println(msg)
 	fmt.Println("rawTagsComponent", rawTagsComponent)
 	fmt.Println("rawSourceComponent", rawSourceComponent)
 	fmt.Println("rawCommandComponent", rawCommandComponent)
+}
+
+func (t *TwitchIRC) parseCommand(command string) string {
 }
 
 func (t *TwitchIRC) auth() {
@@ -138,8 +140,6 @@ func (t *TwitchIRC) startLoop() {
 
 		if len(message) > 0 {
 			msg := strings.Split(message, " ")
-			// t.logger.Infoln(msg)
-
 			if msg[0] == "PING" {
 				go t.write(fmt.Sprintf("PONG :%s\r\n", strings.Join(msg[1:], " ")))
 			} else if len(msg) >= 3 {
