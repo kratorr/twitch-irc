@@ -67,7 +67,6 @@ func (t *TwitchIRC) updateBots() {
 	botsOnlineArr := botsJson["bots"].([]interface{})
 	for _, val := range botsOnlineArr {
 		nickname := val.([]interface{})[0].(string)
-		fmt.Println(nickname)
 		t.botsOnline[nickname] = struct{}{}
 	}
 }
@@ -129,14 +128,13 @@ func (t *TwitchIRC) parseIRCMessage(rawMsg string) *Message {
 		rawSourceComponent = rawMsg[idx:]
 		rawMsg = rawMsg[endIdx+1:]
 	}
-
 	// Get the command component of the IRC message.
 	// fmt.Println(rawMsg)
 	endIdx := strings.Index(rawMsg, ":") // Looking for the parameters part of the message.
 	if -1 == endIdx {                    // But not all messages include the parameters part.
 		endIdx = len(rawMsg)
 	}
-	idx--
+	idx = 0
 	rawCommandComponent := strings.TrimSpace(rawMsg[idx:endIdx])
 	msg.command = t.parseCommand(rawCommandComponent)
 
@@ -150,7 +148,7 @@ func (t *TwitchIRC) parseIRCMessage(rawMsg string) *Message {
 
 func (t *TwitchIRC) parseCommand(rawCommandComponent string) ParsedCommand {
 	var parsedCommand ParsedCommand
-	// fmt.Println("rawCommandComponent", rawCommandComponent)
+	fmt.Println("rawCommandComponent", rawCommandComponent)
 	commandParts := strings.Split(rawCommandComponent, " ")
 	switch commandParts[0] {
 	case "JOIN":
