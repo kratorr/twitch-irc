@@ -107,6 +107,7 @@ func (t *TwitchIRC) parseSourceComponent(rawSource string) {
 }
 
 func (t *TwitchIRC) parseIRCMessage(rawMsg string) *Message {
+	fmt.Println("LEN", len(rawMsg))
 	fmt.Println("RAW_MSG", rawMsg)
 	msg := &Message{}
 
@@ -214,18 +215,19 @@ func (t *TwitchIRC) auth() {
 		log.Fatal("Login authentication failed")
 	}
 	t.write(fmt.Sprintf("JOIN #%s\r\n", t.nick))
-	//message, _ = t.reader.ReadString('\n')
-	//if message != "nil" { // здесь чекнуть ответ от твича
-	//	fmt.Println(message)
-	//}
+	message, _ := t.reader.ReadString('\n')
+	if message != "nil" { // здесь чекнуть ответ от твича
+		fmt.Println(message)
+	}
 }
 
 func (t *TwitchIRC) startLoop() {
 	for {
 
 		message, _ := t.reader.ReadString('\n')
-		t.parseIRCMessage(message)
-
+		if len(message) > 0 {
+			t.parseIRCMessage(message)
+		}
 		// if len(message) > 0 {
 		// 	msg := strings.Split(message, " ")
 		// 	if msg[0] == "PING" {
