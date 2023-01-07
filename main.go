@@ -19,10 +19,15 @@ const (
 // ignore bots from this list https://api.twitchinsights.net/v1/bots/online
 
 type Message struct {
-	tags       string
-	source     string
+	tags       map[string]string
+	source     SourceComponent
 	command    ParsedCommand
 	parameters string
+}
+
+type SourceComponent struct {
+	nick string
+	host string
 }
 
 type ParsedCommand struct {
@@ -31,6 +36,23 @@ type ParsedCommand struct {
 	isCapRequestEnabled bool
 }
 
+// type Tag struct {
+// 	badgeInfo   string
+// 	badges      []string
+// 	color       string
+// 	displayName string
+// 	emotes      []string
+// 	firsMsg     bool
+// 	flags       []string
+// 	id          string
+// 	mod         bool
+// 	subscriber  bool
+// 	turbo       bool
+// 	userId      string
+// 	userType    string
+// 	Vip         string
+// }
+
 type BotsOnline struct{}
 
 func NewTwitchIRC(nick, password string) *TwitchIRC {
@@ -38,20 +60,24 @@ func NewTwitchIRC(nick, password string) *TwitchIRC {
 }
 
 type TwitchIRC struct {
-	address    string
-	port       int32
-	nick       string
-	pass       string
-	conn       net.Conn
-	reader     *bufio.Reader
-	writer     *bufio.Writer
-	mu         *sync.Mutex
-	botsOnline map[string]struct{} // потом убрать нахер отсюда, чисто для уменьшения спама
+	address       string
+	port          int32
+	nick          string
+	pass          string
+	conn          net.Conn
+	reader        *bufio.Reader
+	writer        *bufio.Writer
+	mu            *sync.Mutex
+	botsOnline    map[string]struct{} // потом убрать нахер отсюда, чисто для уменьшения спама
+	cacheUserName map[string]string
 }
 
 // func (t *TwitchIRC) OnMessage(func(msg string) string) {
 // 	t.write()
 // }
+
+func (t *TwitchIRC) saveCache() {
+}
 
 func (t *TwitchIRC) updateBots() {
 	t.botsOnline = make(map[string]struct{}, 0)
@@ -99,16 +125,24 @@ func (t *TwitchIRC) write(msg string) {
 	t.mu.Unlock()
 }
 
-func (t *TwitchIRC) parseTags(rawTag string) {
-}
-
-func (t *TwitchIRC) parseSourceComponent(rawSource string) {
-	fmt.Println(rawSource)
+func (t *TwitchIRC) parseTags(rawTag string) map[string]string {
+	msgTag := make(map[string]string)
+	if len(rawTag) < 1 {
+		return msgTag
+	}
+	tagElems := strings.Split(rawTag, ";")
+	for _, tagElem := range tagElems {
+		tagElemArr := strings.Split(tagElem, "=")
+		msgTag[tagElemArr[0]] = tagElemArr[1]
+	}
+	// if _, found := msgTag["display-name"]; found {
+	// 	t.cacheUserName[t.sour] := msgTag["display-name"]
+	// }
+	return msgTag
 }
 
 func (t *TwitchIRC) parseIRCMessage(rawMsg string) *Message {
-	fmt.Println("LEN", len(rawMsg))
-	fmt.Println("RAW_MSG", rawMsg)
+	log.Print(rawMsg)
 	msg := &Message{}
 
 	var rawTagsComponent string
@@ -130,26 +164,42 @@ func (t *TwitchIRC) parseIRCMessage(rawMsg string) *Message {
 		rawMsg = rawMsg[endIdx+1:]
 	}
 	// Get the command component of the IRC message.
-	// fmt.Println(rawMsg)
 	endIdx := strings.Index(rawMsg, ":") // Looking for the parameters part of the message.
 	if -1 == endIdx {                    // But not all messages include the parameters part.
 		endIdx = len(rawMsg)
 	}
 	idx = 0
 	rawCommandComponent := strings.TrimSpace(rawMsg[idx:endIdx])
+
 	msg.command = t.parseCommand(rawCommandComponent)
 
-	t.parseTags(rawTagsComponent)
-	t.parseSourceComponent(rawSourceComponent)
+	msg.tags = t.parseTags(rawTagsComponent)
+	msg.source = t.parseSource(rawSourceComponent)
 
-	// fmt.Println(msg.command.command, msg.command.channel)
-
+	log.Printf("MSG.COMMAND: %#v", msg.command)
+	log.Printf("MSG.SOURCE: %#v", msg.source)
+	log.Printf("MSG.PARAMETERS: %#v", msg.parameters)
+	log.Printf("MSG.TAG: %#v", msg.tags)
 	return msg
+}
+
+func (t *TwitchIRC) parseSource(rawSourceComponent string) SourceComponent {
+	sc := SourceComponent{}
+	if rawSourceComponent == "" {
+		return sc
+	} else {
+		sourceParts := strings.Split(rawSourceComponent, "!")
+
+		if len(sourceParts) == 2 {
+			sc.nick = sourceParts[0]
+			sc.host = sourceParts[1]
+		}
+	}
+	return sc
 }
 
 func (t *TwitchIRC) parseCommand(rawCommandComponent string) ParsedCommand {
 	var parsedCommand ParsedCommand
-	fmt.Println("rawCommandComponent", rawCommandComponent)
 	commandParts := strings.Split(rawCommandComponent, " ")
 	switch commandParts[0] {
 	case "JOIN":
@@ -162,7 +212,10 @@ func (t *TwitchIRC) parseCommand(rawCommandComponent string) ParsedCommand {
 		parsedCommand.command = commandParts[0]
 		parsedCommand.channel = commandParts[1]
 	case "PING":
-		parsedCommand.command = commandParts[0]
+		// resp := fmt.Sprintf("PONG :%s\r\n", strings.Join(commandParts[1:], " "))
+		// fmt.Println(resp)
+		// go t.write(resp)
+		// parsedCommand.command = commandParts[0]
 	case "CAP":
 		parsedCommand.command = commandParts[0]
 		if commandParts[2] == "ACK" {
@@ -207,7 +260,6 @@ func (t *TwitchIRC) auth() {
 	t.write("CAP REQ :twitch.tv/membership twitch.tv/tags twitch.tv/commands\r\n")
 	msg, _ := t.reader.ReadString('\n')
 	if msg != "" { // здесь чекнуть ответ от твича
-		fmt.Println(msg)
 	}
 	t.write(fmt.Sprintf("PASS %s\r\nNICK %s\r\n", t.pass, t.nick))
 	msg, _ = t.reader.ReadString('\n')
@@ -217,31 +269,39 @@ func (t *TwitchIRC) auth() {
 	t.write(fmt.Sprintf("JOIN #%s\r\n", t.nick))
 	message, _ := t.reader.ReadString('\n')
 	if message != "nil" { // здесь чекнуть ответ от твича
-		fmt.Println(message)
 	}
 }
 
 func (t *TwitchIRC) startLoop() {
 	for {
 
-		message, _ := t.reader.ReadString('\n')
-		if len(message) > 0 {
-			t.parseIRCMessage(message)
+		message, err := t.reader.ReadString('\n')
+		if err != nil {
+			fmt.Println(err)
 		}
-		// if len(message) > 0 {
-		// 	msg := strings.Split(message, " ")
-		// 	if msg[0] == "PING" {
-		// 		go t.write(fmt.Sprintf("PONG :%s\r\n", strings.Join(msg[1:], " ")))
-		// 	} else if len(msg) >= 3 {
-		// 		// if msg[1] == "JOIN" {
-		// 		// 	name := strings.Split(msg[0], "!")
-		// 		// 	go t.write(fmt.Sprintf("PRIVMSG #%s :Hi, @%s \r\n", t.nick, name[0][1:]))
 
-		// 		// } else {
-		// 		// }
-		// 	}
+		if len(message) > 0 {
+			twitchMsg := t.parseIRCMessage(message)
+			msg := strings.Split(message, " ")
+			if msg[0] == "PING" {
+				go t.write(fmt.Sprintf("PONG %s\r\n", strings.Join(msg[1:], " ")))
+			} else if len(msg) >= 3 {
+				if msg[1] == "JOIN" {
+					name := strings.Split(msg[0], "!")
+					nameStr := name[0][1:]
+					if twitchMsg.tags["display-name"] == t.nick {
+						continue
+					}
 
-		//}
+					if _, found := t.botsOnline[nameStr]; found {
+						continue
+					}
+					fmt.Println("JOIN", twitchMsg)
+					go t.write(fmt.Sprintf("PRIVMSG #%s :Hi, @%s \r\n", t.nick, nameStr))
+				}
+			}
+
+		}
 
 	}
 }
