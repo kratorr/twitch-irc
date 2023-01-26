@@ -70,6 +70,7 @@ type TwitchIRC struct {
 	mu            *sync.Mutex
 	botsOnline    map[string]struct{} // потом убрать нахер отсюда, чисто для уменьшения спама
 	cacheUserName map[string]string
+	joinHandler   func(Message) (string, error)
 }
 
 // func (t *TwitchIRC) OnMessage(func(msg string) string) {
@@ -212,6 +213,8 @@ func (t *TwitchIRC) parseCommand(rawCommandComponent string) ParsedCommand {
 		parsedCommand.command = commandParts[0]
 		parsedCommand.channel = commandParts[1]
 	case "PING":
+		log.Println("PARSED COMMAND", parsedCommand)
+		// go t.write(fmt.Sprintf("PONG %s\r\n", strings.Join(commandParts[1:], " ")))
 		// resp := fmt.Sprintf("PONG :%s\r\n", strings.Join(commandParts[1:], " "))
 		// fmt.Println(resp)
 		// go t.write(resp)
@@ -223,8 +226,7 @@ func (t *TwitchIRC) parseCommand(rawCommandComponent string) ParsedCommand {
 		} else {
 			parsedCommand.isCapRequestEnabled = false
 		}
-		// The parameters part of the messages contains the
-		// enabled capabilities.
+
 	case "GLOBALUSERSTATE": // Included only if you request the /commands capability.
 		// But it has no meaning without also including the /tags capability.
 		parsedCommand.command = commandParts[0]
@@ -272,6 +274,11 @@ func (t *TwitchIRC) auth() {
 	}
 }
 
+func (t *TwitchIRC) JoinHanler(msg Message) string {
+	response, _ := t.joinHandler(msg)
+	return response
+}
+
 func (t *TwitchIRC) startLoop() {
 	for {
 
@@ -283,8 +290,19 @@ func (t *TwitchIRC) startLoop() {
 		if len(message) > 0 {
 			twitchMsg := t.parseIRCMessage(message)
 			msg := strings.Split(message, " ")
-			if msg[0] == "PING" {
+
+			switch twitchMsg.command.command {
+			case "PING":
 				go t.write(fmt.Sprintf("PONG %s\r\n", strings.Join(msg[1:], " ")))
+
+			case "JOIN":
+				response := t.JoinHanler(*twitchMsg)
+				fmt.Println(response)
+
+			}
+
+			if msg[0] == "PING" {
+				// go t.write(fmt.Sprintf("PONG %s\r\n", strings.Join(msg[1:], " ")))
 			} else if len(msg) >= 3 {
 				if msg[1] == "JOIN" {
 					name := strings.Split(msg[0], "!")
