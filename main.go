@@ -70,7 +70,7 @@ type TwitchIRC struct {
 	mu            *sync.Mutex
 	botsOnline    map[string]struct{} // потом убрать нахер отсюда, чисто для уменьшения спама
 	cacheUserName map[string]string
-	joinHandler   func(Message) (string, error)
+	JoinHandler   func(Message) (string, error)
 }
 
 // func (t *TwitchIRC) OnMessage(func(msg string) string) {
