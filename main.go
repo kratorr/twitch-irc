@@ -195,7 +195,7 @@ func (t *TwitchIRC) parseSource(rawSourceComponent string) SourceComponent {
 		sourceParts := strings.Split(rawSourceComponent, "!")
 
 		if len(sourceParts) == 2 {
-			sc.nick = sourceParts[0]
+			sc.Nick = sourceParts[0]
 			sc.host = sourceParts[1]
 		}
 	}
@@ -213,8 +213,8 @@ func (t *TwitchIRC) parseCommand(rawCommandComponent string) ParsedCommand {
 	case "HOSTTARGET":
 	case "WHISPER":
 	case "PRIVMSG":
-		parsedCommand.command = commandParts[0]
-		parsedCommand.channel = commandParts[1]
+		parsedCommand.Command = commandParts[0]
+		parsedCommand.Channel = commandParts[1]
 	case "PING":
 		log.Println("PARSED COMMAND", parsedCommand)
 		// go t.write(fmt.Sprintf("PONG %s\r\n", strings.Join(commandParts[1:], " ")))
@@ -223,7 +223,7 @@ func (t *TwitchIRC) parseCommand(rawCommandComponent string) ParsedCommand {
 		// go t.write(resp)
 		// parsedCommand.command = commandParts[0]
 	case "CAP":
-		parsedCommand.command = commandParts[0]
+		parsedCommand.Command = commandParts[0]
 		if commandParts[2] == "ACK" {
 			parsedCommand.isCapRequestEnabled = true
 		} else {
@@ -232,19 +232,19 @@ func (t *TwitchIRC) parseCommand(rawCommandComponent string) ParsedCommand {
 
 	case "GLOBALUSERSTATE": // Included only if you request the /commands capability.
 		// But it has no meaning without also including the /tags capability.
-		parsedCommand.command = commandParts[0]
+		parsedCommand.Command = commandParts[0]
 	case "USERSTATE": // Included only if you request the /commands capability.
 	case "ROOMSTATE": // But it has no meaning without also including the /tags capabilities.
-		parsedCommand.command = commandParts[0]
-		parsedCommand.channel = commandParts[1]
+		parsedCommand.Command = commandParts[0]
+		parsedCommand.Channel = commandParts[1]
 	case "RECONNECT":
 		fmt.Println("The Twitch IRC server is about to terminate the connection for maintenance.")
-		parsedCommand.command = commandParts[0]
+		parsedCommand.Command = commandParts[0]
 	case "421":
 		fmt.Printf("Unsupported IRC command: %s", commandParts[2])
 	case "001": // Logged in (successfully authenticated).
-		parsedCommand.command = commandParts[0]
-		parsedCommand.channel = commandParts[1]
+		parsedCommand.Command = commandParts[0]
+		parsedCommand.Channel = commandParts[1]
 	case "002": // Ignoring all other numeric messages.
 	case "003":
 	case "004":
@@ -300,7 +300,7 @@ func (t *TwitchIRC) startLoop() {
 			twitchMsg := t.parseIRCMessage(message)
 			msg := strings.Split(message, " ")
 
-			switch twitchMsg.Command.command {
+			switch twitchMsg.Command.Command {
 			case "PING":
 				go t.write(fmt.Sprintf("PONG %s\r\n", strings.Join(msg[1:], " ")))
 
