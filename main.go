@@ -10,6 +10,7 @@ import (
 	"strings"
 	"sync"
 
+	"github.com/g3n/engine/util/logger"
 	"go.uber.org/zap"
 )
 
@@ -21,7 +22,7 @@ var zapLog *zap.SugaredLogger
 
 func init() {
 	logger, _ := zap.NewProduction()
-	defer logger.Sync() // flushes buffer, if any
+	defer logger.Sync() // flushes buffer, if any``
 	zapLog = logger.Sugar()
 }
 
@@ -132,6 +133,7 @@ func (t *TwitchIRC) init() {
 func (t *TwitchIRC) write(msg string) {
 	t.mu.Lock()
 	_, err := t.writer.WriteString(msg)
+	logger.Debug("Message sent: %s", msg)
 	if err != nil {
 		fmt.Println("Error when try to write", err)
 	}
@@ -264,9 +266,9 @@ func (t *TwitchIRC) parseCommand(rawCommandComponent string) ParsedCommand {
 	case "372":
 	case "375":
 	case "376":
-		fmt.Println("numeric message: %s", commandParts[0])
+		// fmt.Println("numeric message: %s", commandParts[0])
 	default:
-		fmt.Printf("\nUnexpected command: %s", commandParts[0])
+		// fmt.Printf("\nUnexpected command: %s", commandParts[0])
 	}
 
 	return parsedCommand
@@ -297,7 +299,7 @@ func (t *TwitchIRC) startLoop() {
 	go func() {
 		for outMsg := range t.OutputMessages {
 			fmt.Println("FROM QUEUE", outMsg)
-			go t.write(fmt.Sprintf("PRIVMSG, %s", outMsg))
+			go t.write(fmt.Sprintf("PRIVMSG #%s :%s \r\n", t.nick, outMsg))
 		}
 	}()
 
