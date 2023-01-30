@@ -56,21 +56,25 @@ type ParsedCommand struct {
 type BotsOnline struct{}
 
 func NewTwitchIRC(nick, password string) *TwitchIRC {
-	return &TwitchIRC{nick: nick, pass: password}
+	messages := make(chan Message)
+	outputMessages := make(chan string)
+	return &TwitchIRC{nick: nick, pass: password, Messages: messages, OutputMessages: outputMessages}
 }
 
 type TwitchIRC struct {
-	address       string
-	port          int32
-	nick          string
-	pass          string
-	conn          net.Conn
-	reader        *bufio.Reader
-	writer        *bufio.Writer
-	mu            *sync.Mutex
-	botsOnline    map[string]struct{} // потом убрать нахер отсюда, чисто для уменьшения спама
-	cacheUserName map[string]string
-	JoinHandler   func(message Message) (string, error)
+	address        string
+	port           int32
+	nick           string
+	pass           string
+	conn           net.Conn
+	reader         *bufio.Reader
+	writer         *bufio.Writer
+	mu             *sync.Mutex
+	botsOnline     map[string]struct{} // потом убрать нахер отсюда, чисто для уменьшения спама
+	cacheUserName  map[string]string
+	joinHandler    func(Message) (string, error)
+	Messages       chan Message
+	OutputMessages chan string
 }
 
 // func (t *TwitchIRC) OnMessage(func(msg string) string) {
@@ -142,9 +146,9 @@ func (t *TwitchIRC) parseTags(rawTag string) map[string]string {
 	return msgTag
 }
 
-func (t *TwitchIRC) parseIRCMessage(rawMsg string) *Message {
+func (t *TwitchIRC) parseIRCMessage(rawMsg string) Message {
 	log.Print(rawMsg)
-	msg := &Message{}
+	msg := Message{}
 
 	var rawTagsComponent string
 	var rawSourceComponent string
@@ -280,6 +284,12 @@ func (t *TwitchIRC) JoinHanler(msg Message) string {
 }
 
 func (t *TwitchIRC) startLoop() {
+	go func() {
+		for i := range t.OutputMessages {
+			fmt.Println(i)
+		}
+	}()
+
 	for {
 
 		message, err := t.reader.ReadString('\n')
@@ -296,9 +306,9 @@ func (t *TwitchIRC) startLoop() {
 				go t.write(fmt.Sprintf("PONG %s\r\n", strings.Join(msg[1:], " ")))
 
 			case "JOIN":
-				response := t.JoinHanler(*twitchMsg)
-				fmt.Println(response)
-
+				t.Messages <- twitchMsg
+			case "PRIVMSG":
+				t.Messages <- twitchMsg
 			}
 
 			if msg[0] == "PING" {
