@@ -25,13 +25,13 @@ type Message struct {
 	Parameters string
 }
 type SourceComponent struct {
-	nick string
+	Nick string
 	host string
 }
 
 type ParsedCommand struct {
-	command             string
-	channel             string
+	Command             string
+	Channel             string
 	isCapRequestEnabled bool
 }
 
