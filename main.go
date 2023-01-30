@@ -219,6 +219,7 @@ func (t *TwitchIRC) parseCommand(rawCommandComponent string) ParsedCommand {
 	commandParts := strings.Split(rawCommandComponent, " ")
 	switch commandParts[0] {
 	case "JOIN":
+		parsedCommand.Command = commandParts[0]
 	case "PART":
 	case "NOTICE":
 	case "CLEARCHAT":
@@ -298,7 +299,7 @@ func (t *TwitchIRC) JoinHanler(msg Message) string {
 func (t *TwitchIRC) startLoop() {
 	go func() {
 		for outMsg := range t.OutputMessages {
-			fmt.Println("FROM QUEUE", outMsg)
+			logger.Debug("From outputmessages channel: %s", outMsg)
 			go t.write(fmt.Sprintf("PRIVMSG #%s :%s \r\n", t.nick, outMsg))
 		}
 	}()
