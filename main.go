@@ -5,16 +5,25 @@ import (
 	"encoding/json"
 	"fmt"
 	"io"
-	"log"
 	"net"
 	"net/http"
 	"strings"
 	"sync"
+
+	"go.uber.org/zap"
 )
 
 const (
 	CONN_HOST = "irc.chat.twitch.tv:6667"
 )
+
+var zapLog *zap.SugaredLogger
+
+func init() {
+	logger, _ := zap.NewProduction()
+	defer logger.Sync() // flushes buffer, if any
+	zapLog = logger.Sugar()
+}
 
 // ignore bots from this list https://api.twitchinsights.net/v1/bots/online
 
@@ -57,6 +66,7 @@ type BotsOnline struct{}
 func NewTwitchIRC(nick, password string) *TwitchIRC {
 	messages := make(chan Message)
 	outputMessages := make(chan string)
+
 	return &TwitchIRC{nick: nick, pass: password, Messages: messages, OutputMessages: outputMessages}
 }
 
@@ -111,7 +121,7 @@ func (t *TwitchIRC) Start() {
 func (t *TwitchIRC) init() {
 	conn, err := net.Dial("tcp", CONN_HOST)
 	if err != nil {
-		log.Fatal("Connection error %s", err)
+		zapLog.Fatal("Connection error %s", err)
 	}
 	t.conn = conn
 	t.mu = &sync.Mutex{}
@@ -146,7 +156,7 @@ func (t *TwitchIRC) parseTags(rawTag string) map[string]string {
 }
 
 func (t *TwitchIRC) parseIRCMessage(rawMsg string) Message {
-	log.Print(rawMsg)
+	zapLog.Debug(rawMsg)
 	msg := Message{}
 
 	var rawTagsComponent string
@@ -180,10 +190,10 @@ func (t *TwitchIRC) parseIRCMessage(rawMsg string) Message {
 	msg.Tags = t.parseTags(rawTagsComponent)
 	msg.Source = t.parseSource(rawSourceComponent)
 
-	log.Printf("MSG.COMMAND: %#v", msg.Command)
-	log.Printf("MSG.SOURCE: %#v", msg.Source)
-	log.Printf("MSG.PARAMETERS: %#v", msg.Parameters)
-	log.Printf("MSG.TAG: %#v", msg.Tags)
+	zapLog.Debug("MSG.COMMAND: %#v", msg.Command)
+	zapLog.Debug("MSG.SOURCE: %#v", msg.Source)
+	zapLog.Debug("MSG.PARAMETERS: %#v", msg.Parameters)
+	zapLog.Debug("MSG.TAG: %#v", msg.Tags)
 	return msg
 }
 
@@ -216,7 +226,8 @@ func (t *TwitchIRC) parseCommand(rawCommandComponent string) ParsedCommand {
 		parsedCommand.Command = commandParts[0]
 		parsedCommand.Channel = commandParts[1]
 	case "PING":
-		log.Println("PARSED COMMAND", parsedCommand)
+		zapLog.Debug("PARSED COMMAND", parsedCommand)
+
 		// go t.write(fmt.Sprintf("PONG %s\r\n", strings.Join(commandParts[1:], " ")))
 		// resp := fmt.Sprintf("PONG :%s\r\n", strings.Join(commandParts[1:], " "))
 		// fmt.Println(resp)
@@ -269,7 +280,7 @@ func (t *TwitchIRC) auth() {
 	t.write(fmt.Sprintf("PASS %s\r\nNICK %s\r\n", t.pass, t.nick))
 	msg, _ = t.reader.ReadString('\n')
 	if strings.Contains(msg, "Login authentication failed") { // здесь чекнуть ответ от твича
-		log.Fatal("Login authentication failed")
+		zapLog.Fatal("Login authentication failed")
 	}
 	t.write(fmt.Sprintf("JOIN #%s\r\n", t.nick))
 	message, _ := t.reader.ReadString('\n')
@@ -284,8 +295,9 @@ func (t *TwitchIRC) JoinHanler(msg Message) string {
 
 func (t *TwitchIRC) startLoop() {
 	go func() {
-		for i := range t.OutputMessages {
-			fmt.Println("FROM QUEUE", i)
+		for outMsg := range t.OutputMessages {
+			fmt.Println("FROM QUEUE", outMsg)
+			go t.write(fmt.Sprintf("PRIVMSG, %s", outMsg))
 		}
 	}()
 
@@ -309,25 +321,6 @@ func (t *TwitchIRC) startLoop() {
 			case "PRIVMSG":
 				t.Messages <- twitchMsg
 			}
-
-			if msg[0] == "PING" {
-				// go t.write(fmt.Sprintf("PONG %s\r\n", strings.Join(msg[1:], " ")))
-			} else if len(msg) >= 3 {
-				if msg[1] == "JOIN" {
-					name := strings.Split(msg[0], "!")
-					nameStr := name[0][1:]
-					if twitchMsg.Tags["display-name"] == t.nick {
-						continue
-					}
-
-					if _, found := t.botsOnline[nameStr]; found {
-						continue
-					}
-					fmt.Println("JOIN", twitchMsg)
-					go t.write(fmt.Sprintf("PRIVMSG #%s :Hi, @%s \r\n", t.nick, nameStr))
-				}
-			}
-
 		}
 
 	}
