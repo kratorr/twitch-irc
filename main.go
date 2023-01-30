@@ -19,12 +19,11 @@ const (
 // ignore bots from this list https://api.twitchinsights.net/v1/bots/online
 
 type Message struct {
-	tags       map[string]string
-	source     SourceComponent
-	command    ParsedCommand
-	parameters string
+	Tags       map[string]string
+	Source     SourceComponent
+	Command    ParsedCommand
+	Parameters string
 }
-
 type SourceComponent struct {
 	nick string
 	host string
@@ -55,10 +54,10 @@ type ParsedCommand struct {
 
 type BotsOnline struct{}
 
-func NewTwitchIRC(nick, password string) *TwitchIRC {
+func NewTwitchIRC(nick, password string) (*TwitchIRC, chan Message, chan string) {
 	messages := make(chan Message)
 	outputMessages := make(chan string)
-	return &TwitchIRC{nick: nick, pass: password, Messages: messages, OutputMessages: outputMessages}
+	return &TwitchIRC{nick: nick, pass: password, Messages: messages, OutputMessages: outputMessages}, messages, outputMessages
 }
 
 type TwitchIRC struct {
@@ -176,15 +175,15 @@ func (t *TwitchIRC) parseIRCMessage(rawMsg string) Message {
 	idx = 0
 	rawCommandComponent := strings.TrimSpace(rawMsg[idx:endIdx])
 
-	msg.command = t.parseCommand(rawCommandComponent)
+	msg.Command = t.parseCommand(rawCommandComponent)
 
-	msg.tags = t.parseTags(rawTagsComponent)
-	msg.source = t.parseSource(rawSourceComponent)
+	msg.Tags = t.parseTags(rawTagsComponent)
+	msg.Source = t.parseSource(rawSourceComponent)
 
-	log.Printf("MSG.COMMAND: %#v", msg.command)
-	log.Printf("MSG.SOURCE: %#v", msg.source)
-	log.Printf("MSG.PARAMETERS: %#v", msg.parameters)
-	log.Printf("MSG.TAG: %#v", msg.tags)
+	log.Printf("MSG.COMMAND: %#v", msg.Command)
+	log.Printf("MSG.SOURCE: %#v", msg.Source)
+	log.Printf("MSG.PARAMETERS: %#v", msg.Parameters)
+	log.Printf("MSG.TAG: %#v", msg.Tags)
 	return msg
 }
 
@@ -286,7 +285,7 @@ func (t *TwitchIRC) JoinHanler(msg Message) string {
 func (t *TwitchIRC) startLoop() {
 	go func() {
 		for i := range t.OutputMessages {
-			fmt.Println(i)
+			fmt.Println("FROM QUEUE", i)
 		}
 	}()
 
@@ -301,7 +300,7 @@ func (t *TwitchIRC) startLoop() {
 			twitchMsg := t.parseIRCMessage(message)
 			msg := strings.Split(message, " ")
 
-			switch twitchMsg.command.command {
+			switch twitchMsg.Command.command {
 			case "PING":
 				go t.write(fmt.Sprintf("PONG %s\r\n", strings.Join(msg[1:], " ")))
 
@@ -317,7 +316,7 @@ func (t *TwitchIRC) startLoop() {
 				if msg[1] == "JOIN" {
 					name := strings.Split(msg[0], "!")
 					nameStr := name[0][1:]
-					if twitchMsg.tags["display-name"] == t.nick {
+					if twitchMsg.Tags["display-name"] == t.nick {
 						continue
 					}
 
