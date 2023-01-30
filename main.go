@@ -54,10 +54,10 @@ type ParsedCommand struct {
 
 type BotsOnline struct{}
 
-func NewTwitchIRC(nick, password string) (*TwitchIRC, chan Message, chan string) {
+func NewTwitchIRC(nick, password string) *TwitchIRC {
 	messages := make(chan Message)
 	outputMessages := make(chan string)
-	return &TwitchIRC{nick: nick, pass: password, Messages: messages, OutputMessages: outputMessages}, messages, outputMessages
+	return &TwitchIRC{nick: nick, pass: password, Messages: messages, OutputMessages: outputMessages}
 }
 
 type TwitchIRC struct {
