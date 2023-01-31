@@ -10,7 +10,6 @@ import (
 	"strings"
 	"sync"
 
-	"github.com/g3n/engine/util/logger"
 	"go.uber.org/zap"
 )
 
@@ -21,7 +20,26 @@ const (
 var zapLog *zap.SugaredLogger
 
 func init() {
-	logger, _ := zap.NewProduction()
+	rawJSON := []byte(`{
+		"level": "debug",
+		"encoding": "json",
+		"outputPaths": ["stdout"],
+		"errorOutputPaths": ["stderr"],
+		"encoderConfig": {
+		  "messageKey": "message",
+		  "levelKey": "level",
+		  "levelEncoder": "lowercase"
+		}
+	  }`)
+	var cfg zap.Config
+	if err := json.Unmarshal(rawJSON, &cfg); err != nil {
+		panic(err)
+	}
+	logger, err := cfg.Build()
+	if err != nil {
+		panic(err)
+	}
+	//	logger, _ := zap.NewProduction()
 	defer logger.Sync() // flushes buffer, if any``
 	zapLog = logger.Sugar()
 }
@@ -133,7 +151,7 @@ func (t *TwitchIRC) init() {
 func (t *TwitchIRC) write(msg string) {
 	t.mu.Lock()
 	_, err := t.writer.WriteString(msg)
-	logger.Debug("Message sent: %s", msg)
+	zapLog.Debug("Message sent: %s", msg)
 	if err != nil {
 		fmt.Println("Error when try to write", err)
 	}
@@ -257,6 +275,7 @@ func (t *TwitchIRC) parseCommand(rawCommandComponent string) ParsedCommand {
 	case "421":
 		fmt.Printf("Unsupported IRC command: %s", commandParts[2])
 	case "001": // Logged in (successfully authenticated).
+
 		parsedCommand.Command = commandParts[0]
 		parsedCommand.Channel = commandParts[1]
 	case "002": // Ignoring all other numeric messages.
@@ -299,7 +318,7 @@ func (t *TwitchIRC) JoinHanler(msg Message) string {
 func (t *TwitchIRC) startLoop() {
 	go func() {
 		for outMsg := range t.OutputMessages {
-			logger.Debug("From outputmessages channel: %s", outMsg)
+			zapLog.Debug("From outputmessages channel: %s", outMsg)
 			go t.write(fmt.Sprintf("PRIVMSG #%s :%s \r\n", t.nick, outMsg))
 		}
 	}()
