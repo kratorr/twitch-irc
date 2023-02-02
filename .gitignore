@@ -1,1 +1,4 @@
 config
+.idea
+.vscode
+*log
