@@ -20,31 +20,19 @@ const (
 var zapLog *zap.SugaredLogger
 
 func init() {
-	rawJSON := []byte(`{
-		"level": "debug",
-		"encoding": "json",
-		"outputPaths": ["stdout"],
-		"errorOutputPaths": ["stderr"],
-		"encoderConfig": {
-		  "messageKey": "message",
-		  "levelKey": "level",
-		  "levelEncoder": "lowercase"
-		}
-	  }`)
-	var cfg zap.Config
-	if err := json.Unmarshal(rawJSON, &cfg); err != nil {
-		panic(err)
+	debug := true
+	var logger *zap.Logger
+	// потом как нибудь прикрутить при создании бота логгера, мб вместо инита
+	if debug == true {
+		logger, _ = zap.NewDevelopment()
+	} else {
+		logger, _ = zap.NewProduction()
 	}
-	logger, err := cfg.Build()
-	if err != nil {
-		panic(err)
-	}
-	//	logger, _ := zap.NewProduction()
-	defer logger.Sync() // flushes buffer, if any``
+
+	defer logger.Sync()
+
 	zapLog = logger.Sugar()
 }
-
-// ignore bots from this list https://api.twitchinsights.net/v1/bots/online
 
 type Message struct {
 	Tags       map[string]string
@@ -105,13 +93,7 @@ type TwitchIRC struct {
 	OutputMessages chan string
 }
 
-// func (t *TwitchIRC) OnMessage(func(msg string) string) {
-// 	t.write()
-// }
-
-func (t *TwitchIRC) saveCache() {
-}
-
+// ignore bots from this list https://api.twitchinsights.net/v1/bots/online
 func (t *TwitchIRC) updateBots() {
 	t.botsOnline = make(map[string]struct{}, 0)
 	var botsJson map[string]interface{}
@@ -151,7 +133,8 @@ func (t *TwitchIRC) init() {
 func (t *TwitchIRC) write(msg string) {
 	t.mu.Lock()
 	_, err := t.writer.WriteString(msg)
-	zapLog.Debug("Message sent: %s", msg)
+	// fmt.Printf("Message sent: %s\n", msg)
+	zapLog.Debugf("Message sent: %s", msg)
 	if err != nil {
 		fmt.Println("Error when try to write", err)
 	}
@@ -177,10 +160,12 @@ func (t *TwitchIRC) parseTags(rawTag string) map[string]string {
 
 func (t *TwitchIRC) parseIRCMessage(rawMsg string) Message {
 	zapLog.Debug(rawMsg)
+	fmt.Println("RAW", rawMsg)
 	msg := Message{}
 
 	var rawTagsComponent string
 	var rawSourceComponent string
+	var rawParametersComponent string
 
 	if rawMsg[0] == '@' {
 		endIdx := strings.Index(rawMsg, " ")
@@ -197,23 +182,43 @@ func (t *TwitchIRC) parseIRCMessage(rawMsg string) Message {
 		rawSourceComponent = rawMsg[idx:]
 		rawMsg = rawMsg[endIdx+1:]
 	}
+
 	// Get the command component of the IRC message.
 	endIdx := strings.Index(rawMsg, ":") // Looking for the parameters part of the message.
 	if -1 == endIdx {                    // But not all messages include the parameters part.
 		endIdx = len(rawMsg)
 	}
 	idx = 0
+
 	rawCommandComponent := strings.TrimSpace(rawMsg[idx:endIdx])
+
+	if endIdx != len(rawMsg) { // Check if the IRC message contains a parameters component.
+		idx = endIdx + 1 // Should point to the parameters part of the message.
+		rawParametersComponent = rawMsg[idx:]
+	}
 
 	msg.Command = t.parseCommand(rawCommandComponent)
 
-	msg.Tags = t.parseTags(rawTagsComponent)
-	msg.Source = t.parseSource(rawSourceComponent)
+	if msg.Command.Command == "" {
+		return msg
+	} else {
+		if rawTagsComponent != "" { // The IRC message contains tags.
+			msg.Tags = t.parseTags(rawTagsComponent)
+		}
 
-	zapLog.Debug("MSG.COMMAND: %#v", msg.Command)
-	zapLog.Debug("MSG.SOURCE: %#v", msg.Source)
-	zapLog.Debug("MSG.PARAMETERS: %#v", msg.Parameters)
-	zapLog.Debug("MSG.TAG: %#v", msg.Tags)
+		msg.Source = t.parseSource(rawSourceComponent)
+		msg.Parameters = rawParametersComponent
+
+		//if rawParametersComponent && rawParametersComponent[0] == "!" {
+		// The user entered a bot command in the chat window.
+		// parsedMessage.command = parseParameters(rawParametersComponent, parsedMessage.command)
+		//}
+	}
+
+	zapLog.Debugf("MSG.COMMAND: %#v", msg.Command)
+	zapLog.Debugf("MSG.SOURCE: %#v", msg.Source)
+	zapLog.Debugf("MSG.PARAMETERS: %#v", msg.Parameters)
+	zapLog.Debugf("MSG.TAG: %#v", msg.Tags)
 	return msg
 }
 
@@ -247,13 +252,9 @@ func (t *TwitchIRC) parseCommand(rawCommandComponent string) ParsedCommand {
 		parsedCommand.Command = commandParts[0]
 		parsedCommand.Channel = commandParts[1]
 	case "PING":
-		zapLog.Debug("PARSED COMMAND", parsedCommand)
+		fmt.Println("raw ping-", rawCommandComponent)
 
-		// go t.write(fmt.Sprintf("PONG %s\r\n", strings.Join(commandParts[1:], " ")))
-		// resp := fmt.Sprintf("PONG :%s\r\n", strings.Join(commandParts[1:], " "))
-		// fmt.Println(resp)
-		// go t.write(resp)
-		// parsedCommand.command = commandParts[0]
+		parsedCommand.Command = commandParts[0]
 	case "CAP":
 		parsedCommand.Command = commandParts[0]
 		if commandParts[2] == "ACK" {
@@ -332,11 +333,11 @@ func (t *TwitchIRC) startLoop() {
 
 		if len(message) > 0 {
 			twitchMsg := t.parseIRCMessage(message)
-			msg := strings.Split(message, " ")
-
+			// msg := strings.Split(message, " ")
 			switch twitchMsg.Command.Command {
 			case "PING":
-				go t.write(fmt.Sprintf("PONG %s\r\n", strings.Join(msg[1:], " ")))
+				// go t.write(fmt.Sprintf("PONG %s\r\n", strings.Join(msg[1:], " ")))
+				go t.write(fmt.Sprintf("PONG %s\r\n", twitchMsg.Parameters))
 
 			case "JOIN":
 				t.Messages <- twitchMsg
