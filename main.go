@@ -133,11 +133,12 @@ func (t *TwitchIRC) init() {
 func (t *TwitchIRC) write(msg string) {
 	t.mu.Lock()
 	_, err := t.writer.WriteString(msg)
-	// fmt.Printf("Message sent: %s\n", msg)
+
 	zapLog.Debugf("Message sent: %s", msg)
 	if err != nil {
 		fmt.Println("Error when try to write", err)
 	}
+
 	err = t.writer.Flush()
 	t.mu.Unlock()
 }
@@ -160,7 +161,6 @@ func (t *TwitchIRC) parseTags(rawTag string) map[string]string {
 
 func (t *TwitchIRC) parseIRCMessage(rawMsg string) Message {
 	zapLog.Debug(rawMsg)
-	fmt.Println("RAW", rawMsg)
 	msg := Message{}
 
 	var rawTagsComponent string
@@ -252,8 +252,6 @@ func (t *TwitchIRC) parseCommand(rawCommandComponent string) ParsedCommand {
 		parsedCommand.Command = commandParts[0]
 		parsedCommand.Channel = commandParts[1]
 	case "PING":
-		fmt.Println("raw ping-", rawCommandComponent)
-
 		parsedCommand.Command = commandParts[0]
 	case "CAP":
 		parsedCommand.Command = commandParts[0]
@@ -271,10 +269,10 @@ func (t *TwitchIRC) parseCommand(rawCommandComponent string) ParsedCommand {
 		parsedCommand.Command = commandParts[0]
 		parsedCommand.Channel = commandParts[1]
 	case "RECONNECT":
-		fmt.Println("The Twitch IRC server is about to terminate the connection for maintenance.")
+		zapLog.Infoln("The Twitch IRC server is about to terminate the connection for maintenance.")
 		parsedCommand.Command = commandParts[0]
 	case "421":
-		fmt.Printf("Unsupported IRC command: %s", commandParts[2])
+		zapLog.Infof("Unsupported IRC command: %s", commandParts[2])
 	case "001": // Logged in (successfully authenticated).
 
 		parsedCommand.Command = commandParts[0]
@@ -282,14 +280,13 @@ func (t *TwitchIRC) parseCommand(rawCommandComponent string) ParsedCommand {
 	case "002": // Ignoring all other numeric messages.
 	case "003":
 	case "004":
-	case "353": // Tells you who else is in the chat room you're joining.
+	case "353":
 	case "366":
 	case "372":
 	case "375":
 	case "376":
-		// fmt.Println("numeric message: %s", commandParts[0])
 	default:
-		// fmt.Printf("\nUnexpected command: %s", commandParts[0])
+
 	}
 
 	return parsedCommand
@@ -333,10 +330,8 @@ func (t *TwitchIRC) startLoop() {
 
 		if len(message) > 0 {
 			twitchMsg := t.parseIRCMessage(message)
-			// msg := strings.Split(message, " ")
 			switch twitchMsg.Command.Command {
 			case "PING":
-				// go t.write(fmt.Sprintf("PONG %s\r\n", strings.Join(msg[1:], " ")))
 				go t.write(fmt.Sprintf("PONG %s\r\n", twitchMsg.Parameters))
 
 			case "JOIN":
