@@ -20,7 +20,7 @@ const (
 var zapLog *zap.SugaredLogger
 
 func init() {
-	debug := true
+	debug := false
 	var logger *zap.Logger
 	// потом как нибудь прикрутить при создании бота логгера, мб вместо инита
 	if debug == true {
