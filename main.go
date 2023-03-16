@@ -326,6 +326,7 @@ func (t *TwitchIRC) startLoop() {
 		message, err := t.reader.ReadString('\n')
 		if err != nil {
 			fmt.Println(err)
+			panic("Error read messages from socket")
 		}
 
 		if len(message) > 0 {
