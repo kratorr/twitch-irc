@@ -20,7 +20,7 @@ const (
 var zapLog *zap.SugaredLogger
 
 func init() {
-	debug := false
+	debug := true
 	var logger *zap.Logger
 	// потом как нибудь прикрутить при создании бота логгера, мб вместо инита
 	if debug == true {
@@ -35,9 +35,9 @@ func init() {
 }
 
 type Message struct {
-	Tags       map[string]string
-	Source     SourceComponent
-	Command    ParsedCommand
+	Tags   map[string]string
+	Source SourceComponent
+	Command
 	Parameters string
 }
 type SourceComponent struct {
@@ -45,9 +45,10 @@ type SourceComponent struct {
 	host string
 }
 
-type ParsedCommand struct {
-	Command             string
+type Command struct {
+	CommandName         string
 	Channel             string
+	Body                string
 	isCapRequestEnabled bool
 }
 
@@ -176,7 +177,7 @@ func (t *TwitchIRC) parseIRCMessage(rawMsg string) Message {
 	// Get the source component (nick and host) of the IRC message.
 	// The idx should point to the source part; otherwise, it's a PING command
 	idx := 0
-	if rawMsg[idx] == ':' { // vs_code!vs_code@vs_code.tmi.twitch.tv
+	if rawMsg[idx] == ':' {
 		idx++
 		endIdx := strings.Index(rawMsg, " ")
 		rawSourceComponent = rawMsg[idx:]
@@ -188,37 +189,28 @@ func (t *TwitchIRC) parseIRCMessage(rawMsg string) Message {
 	if -1 == endIdx {                    // But not all messages include the parameters part.
 		endIdx = len(rawMsg)
 	}
+
 	idx = 0
 
-	rawCommandComponent := strings.TrimSpace(rawMsg[idx:endIdx])
+	// rawCommandComponent := strings.TrimSpace(rawMsg[idx:endIdx])
 
 	if endIdx != len(rawMsg) { // Check if the IRC message contains a parameters component.
 		idx = endIdx + 1 // Should point to the parameters part of the message.
-		rawParametersComponent = rawMsg[idx:]
+		msg.Command.Body = rawMsg[idx:]
 	}
 
-	msg.Command = t.parseCommand(rawCommandComponent)
-
-	if msg.Command.Command == "" {
-		return msg
-	} else {
-		if rawTagsComponent != "" { // The IRC message contains tags.
-			msg.Tags = t.parseTags(rawTagsComponent)
-		}
-
-		msg.Source = t.parseSource(rawSourceComponent)
-		msg.Parameters = rawParametersComponent
-
-		//if rawParametersComponent && rawParametersComponent[0] == "!" {
-		// The user entered a bot command in the chat window.
-		// parsedMessage.command = parseParameters(rawParametersComponent, parsedMessage.command)
-		//}
+	if rawTagsComponent != "" { // The IRC message contains tags.
+		msg.Tags = t.parseTags(rawTagsComponent)
 	}
 
-	zapLog.Debugf("MSG.COMMAND: %#v", msg.Command)
-	zapLog.Debugf("MSG.SOURCE: %#v", msg.Source)
-	zapLog.Debugf("MSG.PARAMETERS: %#v", msg.Parameters)
-	zapLog.Debugf("MSG.TAG: %#v", msg.Tags)
+	msg.Source = t.parseSource(rawSourceComponent)
+	msg.Parameters = rawParametersComponent
+
+	// zapLog.Debugf("MSG.COMMAND: %#v", msg.Command)
+	// zapLog.Debugf("MSG.SOURCE: %#v", msg.Source)
+	// zapLog.Debugf("MSG.PARAMETERS: %#v", msg.Parameters)
+	// zapLog.Debugf("MSG.TAG: %#v", msg.Tags)
+
 	return msg
 }
 
@@ -237,24 +229,24 @@ func (t *TwitchIRC) parseSource(rawSourceComponent string) SourceComponent {
 	return sc
 }
 
-func (t *TwitchIRC) parseCommand(rawCommandComponent string) ParsedCommand {
-	var parsedCommand ParsedCommand
+func (t *TwitchIRC) parseCommand(rawCommandComponent string) Command {
+	var parsedCommand Command
 	commandParts := strings.Split(rawCommandComponent, " ")
 	switch commandParts[0] {
 	case "JOIN":
-		parsedCommand.Command = commandParts[0]
+		parsedCommand.CommandName = commandParts[0]
 	case "PART":
 	case "NOTICE":
 	case "CLEARCHAT":
 	case "HOSTTARGET":
 	case "WHISPER":
 	case "PRIVMSG":
-		parsedCommand.Command = commandParts[0]
+		parsedCommand.CommandName = commandParts[0]
 		parsedCommand.Channel = commandParts[1]
 	case "PING":
-		parsedCommand.Command = commandParts[0]
+		parsedCommand.CommandName = commandParts[0]
 	case "CAP":
-		parsedCommand.Command = commandParts[0]
+		parsedCommand.CommandName = commandParts[0]
 		if commandParts[2] == "ACK" {
 			parsedCommand.isCapRequestEnabled = true
 		} else {
@@ -263,19 +255,19 @@ func (t *TwitchIRC) parseCommand(rawCommandComponent string) ParsedCommand {
 
 	case "GLOBALUSERSTATE": // Included only if you request the /commands capability.
 		// But it has no meaning without also including the /tags capability.
-		parsedCommand.Command = commandParts[0]
+		parsedCommand.CommandName = commandParts[0]
 	case "USERSTATE": // Included only if you request the /commands capability.
 	case "ROOMSTATE": // But it has no meaning without also including the /tags capabilities.
-		parsedCommand.Command = commandParts[0]
+		parsedCommand.CommandName = commandParts[0]
 		parsedCommand.Channel = commandParts[1]
 	case "RECONNECT":
 		zapLog.Infoln("The Twitch IRC server is about to terminate the connection for maintenance.")
-		parsedCommand.Command = commandParts[0]
+		parsedCommand.CommandName = commandParts[0]
 	case "421":
 		zapLog.Infof("Unsupported IRC command: %s", commandParts[2])
 	case "001": // Logged in (successfully authenticated).
 
-		parsedCommand.Command = commandParts[0]
+		parsedCommand.CommandName = commandParts[0]
 		parsedCommand.Channel = commandParts[1]
 	case "002": // Ignoring all other numeric messages.
 	case "003":
@@ -331,7 +323,7 @@ func (t *TwitchIRC) startLoop() {
 
 		if len(message) > 0 {
 			twitchMsg := t.parseIRCMessage(message)
-			switch twitchMsg.Command.Command {
+			switch twitchMsg.Command.CommandName {
 			case "PING":
 				go t.write(fmt.Sprintf("PONG %s\r\n", twitchMsg.Parameters))
 
