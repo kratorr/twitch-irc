@@ -39,6 +39,7 @@ type Message struct {
 	Source SourceComponent
 	Command
 	Parameters string
+	Type       string
 }
 type SourceComponent struct {
 	Nick string
@@ -202,10 +203,11 @@ func (t *TwitchIRC) parseIRCMessage(rawMsg string) Message {
 	if rawTagsComponent != "" { // The IRC message contains tags.
 		msg.Tags = t.parseTags(rawTagsComponent)
 	}
+	print("rawMsg ", rawMsg)
 
 	msg.Source = t.parseSource(rawSourceComponent)
 	msg.Parameters = rawParametersComponent
-
+	msg.Command = t.parseCommand(rawMsg)
 	// zapLog.Debugf("MSG.COMMAND: %#v", msg.Command)
 	// zapLog.Debugf("MSG.SOURCE: %#v", msg.Source)
 	// zapLog.Debugf("MSG.PARAMETERS: %#v", msg.Parameters)
@@ -232,6 +234,7 @@ func (t *TwitchIRC) parseSource(rawSourceComponent string) SourceComponent {
 func (t *TwitchIRC) parseCommand(rawCommandComponent string) Command {
 	var parsedCommand Command
 	commandParts := strings.Split(rawCommandComponent, " ")
+	fmt.Println("!!!commandParts", commandParts)
 	switch commandParts[0] {
 	case "JOIN":
 		parsedCommand.CommandName = commandParts[0]
@@ -326,7 +329,6 @@ func (t *TwitchIRC) startLoop() {
 			switch twitchMsg.Command.CommandName {
 			case "PING":
 				go t.write(fmt.Sprintf("PONG %s\r\n", twitchMsg.Parameters))
-
 			case "JOIN":
 				t.Messages <- twitchMsg
 			case "PRIVMSG":
