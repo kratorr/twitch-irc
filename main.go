@@ -2,11 +2,9 @@ package twirc
 
 import (
 	"bufio"
-	"encoding/json"
+	"errors"
 	"fmt"
-	"io"
 	"net"
-	"net/http"
 	"strings"
 	"sync"
 
@@ -35,23 +33,24 @@ func init() {
 }
 
 type Message struct {
-	Tags   map[string]string
-	Source SourceComponent
-	Command
-	Parameters string
-	Type       string
-}
-type SourceComponent struct {
-	Nick string
-	host string
+	Tags       map[string]string
+	Parameters []string
+	Command    string
+	Prefix     string
+	Body       string
 }
 
-type Command struct {
-	CommandName         string
-	Channel             string
-	Body                string
-	isCapRequestEnabled bool
-}
+// type SourceComponent struct {
+// 	Nick string
+// 	host string
+// }
+
+// type Command struct {
+// 	CommandName         string
+// 	Channel             string
+// 	Body                string
+// 	isCapRequestEnabled bool
+// }
 
 // type Tag struct {
 // 	badgeInfo   string
@@ -95,27 +94,7 @@ type TwitchIRC struct {
 	OutputMessages chan string
 }
 
-// ignore bots from this list https://api.twitchinsights.net/v1/bots/online
-func (t *TwitchIRC) updateBots() {
-	t.botsOnline = make(map[string]struct{}, 0)
-	var botsJson map[string]interface{}
-	resp, err := http.Get("https://api.twitchinsights.net/v1/bots/online")
-	if err != nil {
-		panic("Failed to fetch online bots")
-	}
-	defer resp.Body.Close()
-	body, _ := io.ReadAll(resp.Body)
-
-	json.Unmarshal(body, &botsJson)
-	botsOnlineArr := botsJson["bots"].([]interface{})
-	for _, val := range botsOnlineArr {
-		nickname := val.([]interface{})[0].(string)
-		t.botsOnline[nickname] = struct{}{}
-	}
-}
-
 func (t *TwitchIRC) Start() {
-	t.updateBots()
 	t.init()
 	t.auth()
 	t.startLoop()
@@ -161,130 +140,70 @@ func (t *TwitchIRC) parseTags(rawTag string) map[string]string {
 	return msgTag
 }
 
-func (t *TwitchIRC) parseIRCMessage(rawMsg string) Message {
-	zapLog.Debug(rawMsg)
+func (t *TwitchIRC) parseIRCMessage(rawMessage string) (Message, error) {
+	zapLog.Debug("RAW MSG ", rawMessage)
+
+	tags := make(map[string]string)
 	msg := Message{}
+	var prefix, command string
+	var params []string
+	// Проверяем наличие тегов
+	if strings.HasPrefix(rawMessage, "@") {
+		tagsIndex := strings.Index(rawMessage, " ")
+		if tagsIndex == -1 {
+			return msg, errors.New("Erorr find tag delimetes") // Ошибка: Нет разделителя между тегами и командой
+		}
+		tagsRaw := rawMessage[1:tagsIndex]
+		rawMessage = rawMessage[tagsIndex+1:]
 
-	var rawTagsComponent string
-	var rawSourceComponent string
-	var rawParametersComponent string
-
-	if rawMsg[0] == '@' {
-		endIdx := strings.Index(rawMsg, " ")
-		rawTagsComponent = rawMsg[1:endIdx]
-		rawMsg = rawMsg[endIdx+1:]
-	}
-
-	// Get the source component (nick and host) of the IRC message.
-	// The idx should point to the source part; otherwise, it's a PING command
-	idx := 0
-	if rawMsg[idx] == ':' {
-		idx++
-		endIdx := strings.Index(rawMsg, " ")
-		rawSourceComponent = rawMsg[idx:]
-		rawMsg = rawMsg[endIdx+1:]
-	}
-
-	// Get the command component of the IRC message.
-	endIdx := strings.Index(rawMsg, ":") // Looking for the parameters part of the message.
-	if -1 == endIdx {                    // But not all messages include the parameters part.
-		endIdx = len(rawMsg)
-	}
-
-	idx = 0
-
-	// rawCommandComponent := strings.TrimSpace(rawMsg[idx:endIdx])
-
-	if endIdx != len(rawMsg) { // Check if the IRC message contains a parameters component.
-		idx = endIdx + 1 // Should point to the parameters part of the message.
-		msg.Command.Body = rawMsg[idx:]
-	}
-
-	if rawTagsComponent != "" { // The IRC message contains tags.
-		msg.Tags = t.parseTags(rawTagsComponent)
-	}
-	print("rawMsg ", rawMsg)
-
-	msg.Source = t.parseSource(rawSourceComponent)
-	msg.Parameters = rawParametersComponent
-	msg.Command = t.parseCommand(rawMsg)
-	// zapLog.Debugf("MSG.COMMAND: %#v", msg.Command)
-	// zapLog.Debugf("MSG.SOURCE: %#v", msg.Source)
-	// zapLog.Debugf("MSG.PARAMETERS: %#v", msg.Parameters)
-	// zapLog.Debugf("MSG.TAG: %#v", msg.Tags)
-
-	return msg
-}
-
-func (t *TwitchIRC) parseSource(rawSourceComponent string) SourceComponent {
-	sc := SourceComponent{}
-	if rawSourceComponent == "" {
-		return sc
-	} else {
-		sourceParts := strings.Split(rawSourceComponent, "!")
-
-		if len(sourceParts) == 2 {
-			sc.Nick = sourceParts[0]
-			sc.host = sourceParts[1]
+		tagsList := strings.Split(tagsRaw, ";")
+		for _, tag := range tagsList {
+			if strings.Contains(tag, "=") {
+				keyVal := strings.Split(tag, "=")
+				tags[keyVal[0]] = keyVal[1]
+			} else {
+				tags[tag] = ""
+			}
 		}
 	}
-	return sc
-}
+	msg.Tags = tags
 
-func (t *TwitchIRC) parseCommand(rawCommandComponent string) Command {
-	var parsedCommand Command
-	commandParts := strings.Split(rawCommandComponent, " ")
-	fmt.Println("!!!commandParts", commandParts)
-	switch commandParts[0] {
-	case "JOIN":
-		parsedCommand.CommandName = commandParts[0]
-	case "PART":
-	case "NOTICE":
-	case "CLEARCHAT":
-	case "HOSTTARGET":
-	case "WHISPER":
-	case "PRIVMSG":
-		parsedCommand.CommandName = commandParts[0]
-		parsedCommand.Channel = commandParts[1]
-	case "PING":
-		parsedCommand.CommandName = commandParts[0]
-	case "CAP":
-		parsedCommand.CommandName = commandParts[0]
-		if commandParts[2] == "ACK" {
-			parsedCommand.isCapRequestEnabled = true
+	// Проверяем наличие префикса
+	if strings.HasPrefix(rawMessage, ":") {
+		prefixIndex := strings.Index(rawMessage, " ")
+		if prefixIndex == -1 {
+			return msg, errors.New("") // Ошибка: Нет разделителя между префиксом и командой
+		}
+		prefix = rawMessage[1:prefixIndex]
+		rawMessage = rawMessage[prefixIndex+1:]
+	}
+
+	// Получаем команду
+	commandIndex := strings.Index(rawMessage, " ")
+	if commandIndex == -1 {
+		command = rawMessage
+		return msg, errors.New("")
+	}
+	command = rawMessage[0:commandIndex]
+	rawMessage = strings.TrimRight(rawMessage[commandIndex+1:], "\r\n")
+
+	// Получаем параметры
+	for _, param := range strings.Split(rawMessage, " ") {
+		if strings.HasPrefix(param, ":") {
+			params = append(params, strings.TrimRight(param, "\n"))
+			break
 		} else {
-			parsedCommand.isCapRequestEnabled = false
+			params = append(params, strings.TrimRight(param, "\n"))
 		}
-
-	case "GLOBALUSERSTATE": // Included only if you request the /commands capability.
-		// But it has no meaning without also including the /tags capability.
-		parsedCommand.CommandName = commandParts[0]
-	case "USERSTATE": // Included only if you request the /commands capability.
-	case "ROOMSTATE": // But it has no meaning without also including the /tags capabilities.
-		parsedCommand.CommandName = commandParts[0]
-		parsedCommand.Channel = commandParts[1]
-	case "RECONNECT":
-		zapLog.Infoln("The Twitch IRC server is about to terminate the connection for maintenance.")
-		parsedCommand.CommandName = commandParts[0]
-	case "421":
-		zapLog.Infof("Unsupported IRC command: %s", commandParts[2])
-	case "001": // Logged in (successfully authenticated).
-
-		parsedCommand.CommandName = commandParts[0]
-		parsedCommand.Channel = commandParts[1]
-	case "002": // Ignoring all other numeric messages.
-	case "003":
-	case "004":
-	case "353":
-	case "366":
-	case "372":
-	case "375":
-	case "376":
-	default:
-
 	}
 
-	return parsedCommand
+	msg.Body = params[len(params)-1][1:]
+
+	msg.Parameters = params
+	msg.Command = command
+	msg.Prefix = prefix
+	// fmt.Printf("%+v\n", msg)
+	return msg, nil
 }
 
 func (t *TwitchIRC) auth() {
@@ -325,10 +244,14 @@ func (t *TwitchIRC) startLoop() {
 		}
 
 		if len(message) > 0 {
-			twitchMsg := t.parseIRCMessage(message)
-			switch twitchMsg.Command.CommandName {
+			twitchMsg, err := t.parseIRCMessage(strings.TrimSuffix(message, "\n"))
+			if err != nil {
+				fmt.Println("Error parse message", err)
+			}
+			// t.parseIRCMessage(message)
+			switch twitchMsg.Command {
 			case "PING":
-				go t.write(fmt.Sprintf("PONG %s\r\n", twitchMsg.Parameters))
+				go t.write(fmt.Sprintf("PONG :%s\r\n", twitchMsg.Body))
 			case "JOIN":
 				t.Messages <- twitchMsg
 			case "PRIVMSG":
