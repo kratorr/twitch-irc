@@ -188,21 +188,21 @@ func (t *TwitchIRC) parseIRCMessage(rawMessage string) (Message, error) {
 	rawMessage = strings.TrimRight(rawMessage[commandIndex+1:], "\r\n")
 
 	// Получаем параметры
-	for _, param := range strings.Split(rawMessage, " ") {
-		if strings.HasPrefix(param, ":") {
-			params = append(params, strings.TrimRight(param, "\n"))
-			break
+	fmt.Printf("here %+v\n", strings.Split(rawMessage, " "))
+	splitedParams := strings.Split(rawMessage, ":")
+	if len(splitedParams) > 1 {
+		if strings.HasPrefix(splitedParams[0], ":") {
+			msg.Body = splitedParams[0][1:]
 		} else {
-			params = append(params, strings.TrimRight(param, "\n"))
+			msg.Body = splitedParams[1]
 		}
 	}
-
-	msg.Body = params[len(params)-1][1:]
+	// msg.Body = params[len(params)-1]
 
 	msg.Parameters = params
 	msg.Command = command
 	msg.Prefix = prefix
-	// fmt.Printf("%+v\n", msg)
+	fmt.Printf("%+v\n", msg)
 	return msg, nil
 }
 
